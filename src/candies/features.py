@@ -308,12 +308,12 @@ def featurize(
                                 candidate.extras = {**raw.getdataheader()}
                                 fname = "".join([str(candidate), ".h5"])
                                 candidate.save(fname)
-
+"""
                             # This will contain the file paths of the batch                 
                                 file_paths.append(fname)
-                    """
+                    
                     Calling FETCH inside candies  
-                    """
+                    
                     model = get_model("a")
                     h5files = file_paths
 
@@ -340,5 +340,6 @@ def featurize(
                     )
                     classified_list.append(classified_dataframe)
                 final_list = pd.concat(classified_list, ignore_index = True)
-                final_list.to_csv("classification.csv")        
+                final_list.to_csv("classification.csv")
+"""
     cuda.close()
