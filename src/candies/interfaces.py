@@ -39,9 +39,11 @@ class Getrawdata:
             self.fl = self.fh
             self.fh = self.fl + self.bw - (0.5 * self.df)
 
-    def getdatabuffer(self, count, offset):
-        data = internals.get_data_as_numpy_array(count, offset)
-        return data
+    def getdatabuffer(self, count, offset, beam = 0):
+        full_data = internals.get_data_as_numpy_array(count, offset)
+        beam_data = full_data[beam]  # This will give me the beam 0 
+        
+        return beam_data
 
     def getdataheader(self):
         hdr_dict = internals.initialize_HDR_SHM_py()
