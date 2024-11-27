@@ -6,7 +6,7 @@ except ImportError:
 from dataclasses import dataclass
 
 import numpy as np 
-#import the two nanobind functions, something like import shm_reader
+import internals
 
 
 from candies.utilities import dm2delay
@@ -18,12 +18,12 @@ class Getrawdata:
     
 
     def getdatabuffer(count, offset): 
-        data = shm_reader.get_data_as_numpy_array(count,offset)
+        data = internals.get_data_as_numpy_array(count,offset)
 
         return data
 
     def getdataheader():
-        hdr_dict = hdr_shm_reader.initialize_HDR_SHM_py()
+        hdr_dict = internals.initialize_HDR_SHM_py()
 
         return hdr_dict
     try: 
