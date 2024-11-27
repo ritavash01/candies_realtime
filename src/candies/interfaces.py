@@ -1,7 +1,7 @@
 from typing import Self
 from dataclasses import dataclass
 import numpy as np
-import internals
+from shazam import internals
 from candies.utilities import dm2delay
 from candies.base import CandiesError, Candidate
 
