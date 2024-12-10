@@ -6,8 +6,8 @@ from rich.logging import RichHandler
 
 # from candies.interfaces import SIGPROCFilterbank
 from candies.utilities import kdm, delay2dm, normalise
-from fetch.utils import get_model
-from fetch.data_sequence import DataGenerator
+# from fetch.utils import get_model
+# from fetch.data_sequence import DataGenerator
 
 from candies.base import (
     Candidate,
