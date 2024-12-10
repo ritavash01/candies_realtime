@@ -136,7 +136,7 @@ def featurize(
     candidates: Candidate | CandidateList,
     filterbank: str | Path,
     /,
-    gpuid: int = 0,
+    gpuid: int = 1,  #change on the basis of system used 
     save: bool = True,
     zoom: bool = True,
     fudging: int = 512,
