@@ -196,7 +196,7 @@ def featurize(
 
     with stream.auto_synchronize():
         with cuda.defer_cleanup():
-            with Getrawdata as fil:
+            with Getrawdata() as fil:
                 for candidate in track(
                     candidates,
                     disable=(not progressbar),
