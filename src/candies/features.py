@@ -128,7 +128,7 @@ def fastdmt(
 
 
 def featurize(
-    candidates: Candidate | CandidateList
+    candidates: Candidate | CandidateList,
     # filterbank: str | Path, we need to replace this 
     gpuid: int = 0, 
     save: bool = True, 
