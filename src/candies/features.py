@@ -289,4 +289,4 @@ def featurize(
                     final_list = pd.concat(classified_list, ignore_index = True)
                     final_list.to_csv("classification.csv")
     """
-        cuda.close()
+    cuda.close()
