@@ -49,6 +49,9 @@ class Getrawdata:
     def getdatabuffer(self, count, offset):
         data = shared_memory_reader.get_data(count, offset)  # 3 is the beam number
         data = data[2, :]
+        data = data.reshape(-1, self.nf)
+        data = data.T
+        
         return data
 
     def getdataheader(self):
@@ -86,4 +89,7 @@ class Getrawdata:
             dmedian = np.median(d, axis=1)
             data = np.ones((self.nf, nread), dtype=self.dtype) * dmedian[:, None]
             data[:, :self.nt - nbegin] = d
-        return data
+        tbeg = nbegin * self.dt
+        tend = tbeg + (nread * self.dt)
+        
+        return tbeg, tend, data
