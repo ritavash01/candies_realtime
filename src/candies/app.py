@@ -11,7 +11,7 @@ from rich.console import Console
 from joblib import Parallel, delayed
 
 from candies.features import featurize
-from candies.interfaces import SIGPROCFilterbank
+# from candies.interfaces import SIGPROCFilterbank
 from candies.base import Candidate, CandidateList
 
 app = cyclopts.App()
