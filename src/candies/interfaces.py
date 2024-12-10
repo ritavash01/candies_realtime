@@ -8,7 +8,6 @@ import shared_memory_header
 
 @dataclass
 class Getrawdata:
-    
     fh: float = None
     df: float = None
     dt: float = None
@@ -23,7 +22,7 @@ class Getrawdata:
 
         try:
             self.fh = 750     # hdr_dict["Frequency_Ch_0_Hz"] 
-            self.df = -0.048828  #hdr_dict["Channel_width_Hz"] / 1e6
+            self.df = -0.048828  # hdr_dict["Channel_width_Hz"] / 1e6
             self.dt = 0.00131072  # hdr_dict["Sampling_time_uSec"]
             self.nf = hdr_dict["Channels"]
             self.bw = hdr_dict["Bandwidth_MHz"]
@@ -39,8 +38,16 @@ class Getrawdata:
             self.fl = self.fh
             self.fh = self.fl + self.bw - (0.5 * self.df)
 
+    def __enter__(self) -> Self:
+        # Perform any setup or initialization here
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        # Perform any necessary cleanup here
+        pass
+
     def getdatabuffer(self, count, offset):
-        data = shared_memory_reader.get_data(count, offset) # 3 is the beam number
+        data = shared_memory_reader.get_data(count, offset)  # 3 is the beam number
         data = data[2, :]
         return data
 
