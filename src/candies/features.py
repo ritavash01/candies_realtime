@@ -135,12 +135,18 @@ def featurize(
     zoom: bool = True, 
     fudging: int = 512,
     verbose: bool = False,
-    progressbar: bool = False, 
+    progressbar: bool = False,
+    batch_size: int = 5
 ):
 
-    if isinstance(candidates,Candidate):
-        candidates = CandidateList(candidates = [candidates])
-    
+    if isinstance(candidates, Candidate):
+        candidates = CandidateList(candidates=[candidates])
+
+    """
+    Grouping candidates into batches 
+    """
+    candidate_batches = [candidates[i:i + batch_size] for i in range(0, len(candidates), batch_size)]
+
     logging.basicConfig(
         datefmt="[%X]",
         format="%(message)s",
@@ -148,166 +154,107 @@ def featurize(
         handlers=[RichHandler(rich_tracebacks=True)],
     )
     log = logging.getLogger("candies")
-
+    classified_list = []  # Final list
     cuda.select_device(gpuid)
     stream = cuda.stream()
     log.debug(f"Selected GPU {gpuid}.")
+    file_path_list = []
 
     with stream.auto_synchronize():
         with cuda.defer_cleanup():
-            with Getrawdata() as raw:
-                for candidate in track(
-                    candidates, 
-                    disable = (not progressbar),
-                    description = f"Featurizing from raw data",
-                ):
+            with Getrawdata() as raw:  # we are keeping track of batches now
+                for batch in track(
+                    candidate_batches,
+                    disable=(not progressbar),
+                    description=f"Featurizing raw data for batch",
+                ):  # Processing each batch of candidates
+                    for candidate in batch:
 
-                    _, _, data = raw.chop(candidate)
-                    nf, nt = data.shape # why this
-                    log.debug(f"Read in data with {nf} channels and {nt} samples.")
+                        _, _, data = raw.chop(candidate)
+                        nf, nt = data.shape  # why this
+                        log.debug(f"Read in data with {nf} channels and {nt} samples.")
 
-                    ndms = 256 
-                    dmlow, dmhigh = 0.0, 2 * candidate.dm 
+                        ndms = 256
+                        dmlow, dmhigh = 0.0, 2 * candidate.dm
 
-                    if zoom:
+                        if zoom:
                             log.debug("Zoom-in feature active. Calculating DM range.")
                             ddm = delay2dm(
                                 raw.fl, raw.fh, fudging * candidate.wbin * raw.dt
                             )
                             if ddm < candidate.dm:
                                 dmlow, dmhigh = candidate.dm - ddm, candidate.dm + ddm
-                        ddm = (dmhigh - dmlow) / (ndms - 1)
-                        log.debug(f"Using DM range: {dmlow} to {dmhigh} pc cm^-3.")
-                    
-                        downf = int (raw.nf / 256)
+                            ddm = (dmhigh - dmlow) / (ndms - 1)
+                            log.debug(f"Using DM range: {dmlow} to {dmhigh} pc cm^-3.")
+
+                        downf = int(raw.nf / 256)
                         downt = 1 if candidate.wbin < 3 else int(candidate.wbin / 2)
                         log.debug(
                             f"Downsampling by {downf} in frequency and {downt} in time."
                         )
 
-                        nfdown = int(raw.nf /downf)
-                        ntdown = int(nt/downt)
+                        nfdown = int(raw.nf / downf)
+                        ntdown = int(nt / downt)
                         gpudata = cuda.to_device(data, stream=stream)
                         gpudd = cuda.device_array(
-                            (nfdown, ntdowndef featurize(
-        candidates: Candidate | CandidateList
-        # filterbank: str | Path, we need to replace this 
-        gpuid: int = 0, 
-        save: bool = True, 
-        zoom: bool = True, 
-        fudging: int = 512,
-        verbose: bool = False,
-        progressbar: bool = False,
-        batch_size: int = 5  
-    ):
+                            (nfdown, ntdown), order="C", stream=stream
+                        )
+                        gpudmt = cuda.device_array((ndms, ntdown), order="C", stream=stream)
 
-        if isinstance(candidates,Candidate):
-            candidates = CandidateList(candidates = [candidates])
-        
-        """
+                        dedisperse[  # type: ignore
+                            (int(raw.nf / 32), int(nt / 32)),
+                            (32, 32),
+                            stream,
+                        ](
+                            gpudd,
+                            gpudata,
+                            raw.nf,
+                            nt,
+                            raw.df,
+                            raw.dt,
+                            raw.fh,
+                            candidate.dm,
+                            downf,
+                            downt,
+                        )
 
-        Grouping candidates into batches 
-        """
-        candidate_batches = [candidates[i:i+ batch_size] for i in range(0, len(candidates), batch_size)]
+                        fastdmt[  # type: ignore
+                            nt,
+                            ndms,
+                            stream,
+                        ](
+                            gpudmt,
+                            gpudata,
+                            nf,
+                            nt,
+                            raw.df,
+                            raw.dt,
+                            raw.fh,
+                            ddm,
+                            dmlow,
+                            downt,
+                        )
 
-        logging.basicConfig(
-            datefmt="[%X]",
-            format="%(message)s",
-            level=("DEBUG" if verbose else "INFO"),
-            handlers=[RichHandler(rich_tracebacks=True)],
-        )
-        log = logging.getLogger("candies")
-        classified_list = [] # Final list 
-        cuda.select_device(gpuid)
-        stream = cuda.stream()
-        log.debug(f"Selected GPU {gpuid}.")
-        file_path_list = []
-        with stream.auto_synchronize():
-            with cuda.defer_cleanup():
-                with Getrawdata() as raw:  # we are keeping track of batches now 
-                    for batch in track(  
-                        candidate_batches, 
-                        disable = (not progressbar),
-                        description = f"Featurizing raw data for batch {batch}",
-                    ):
-                    # Processing each batch of candidates                                
-                        for candidate in batch:
+                        ntmid = int(ntdown / 2)
 
-                            _, _, data = raw.chop(candidate)
-                            nf, nt = data.shape # why this
-                            log.debug(f"Read in data with {nf} channels and {nt} samples.")
+                        dedispersed = gpudd.copy_to_host(stream=stream)
+                        dedispersed = dedispersed[:, ntmid - 128: ntmid + 128]
+                        dedispersed = normalise(dedispersed)
+                        candidate.dedispersed = Dedispersed(
+                            fl=raw.fl,
+                            fh=raw.fh,
+                            nt=256,
+                            nf=256,
+                            dm=candidate.dm,
+                            data=dedispersed,
+                            dt=raw.dt * downt,
+                            df=(raw.fh - raw.fl) / 256,
+                        )
 
-                            ndms = 256 
-                            dmlow, dmhigh = 0.0, 2 * candidate.dm 
-
-                            if zoom:
-                                    log.debug("Zoom-in feature active. Calculating DM range.")
-                                    ddm = delay2dm(
-                                        raw.fl, raw.fh, fudging * candidate.wbin * raw.dt
-                                    )
-                                    if ddm < candidate.dm:
-                                        dmlow, dmhigh = candidate.dm - ddm, candidate.dm + ddm
-                                ddm = (dmhigh - dmlow) / (ndms - 1)
-                                log.debug(f"Using DM range: {dmlow} to {dmhigh} pc cm^-3.")
-                            
-                                downf = int (raw.nf ), order="C", stream=stream
-                                )
-                                gpudmt = cuda.device_array((ndms, ntdown), order="C", stream=stream)
-
-                                dedisperse[  # type: ignore
-                                    (int(raw.nf / 32), int(nt / 32)),
-                                    (32, 32),
-                                    stream,
-                                ](
-                                    gpudd,
-                                    gpudata,
-                                    raw.nf,
-                                    nt,
-                                    raw.df,
-                                    raw.dt,
-                                    raw.fh,
-                                    candidate.dm,
-                                    downf,
-                                    downt,
-                                )
-
-                                fastdmt[  # type: ignore
-                                    nt,
-                                    ndms,
-                                    stream,
-                                ](
-                                    gpudmt,
-                                    gpudata,
-                                    nf,
-                                    nt,
-                                    raw.df,
-                                    raw.dt,
-                                    raw.fh,
-                                    ddm,
-                                    dmlow,
-                                    downt,
-                                )
-
-                                ntmid = int(ntdown / 2)
-
-                                dedispersed = gpudd.copy_to_host(stream=stream)
-                                dedispersed = dedispersed[:, ntmid - 128 : ntmid + 128]
-                                dedispersed = normalise(dedispersed)
-                                candidate.dedispersed = Dedispersed(
-                                    fl=raw.fl,
-                                    fh=raw.fh,
-                                    nt=256,
-                                    nf=256,
-                                    dm=candidate.dm,
-                                    data=dedispersed,
-                                    dt=raw.dt * downt,
-                                    df=(raw.fh - raw.fl) / 256,
-                                )
-
-                                if save:
-                                    candidate.extras = {**raw.getdataheader()}
-                                    fname = "".join([str(candidate), ".h5"])
-                                    candidate.save(fname)
+                        if save:
+                            candidate.extras = {**raw.getdataheader()}
+                            fname = "".join([str(candidate), ".h5"])
+                            candidate.save(fname)
     """
                                 # This will contain the file paths of the batch                 
                                     file_paths.append(fname)
