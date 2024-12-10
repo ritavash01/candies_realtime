@@ -4,7 +4,8 @@ import numpy as np
 from shazam import internals
 from candies.utilities import dm2delay
 from candies.base import CandiesError, Candidate
-
+import shared_memory_reader
+import shared_memory_header
 
 @dataclass
 class Getrawdata:
@@ -22,9 +23,9 @@ class Getrawdata:
         hdr_dict = self.getdataheader()
 
         try:
-            self.fh = hdr_dict["Frequency_Ch_0_Hz"]
-            self.df = hdr_dict["Channel_width_Hz"] / 1e6
-            self.dt = hdr_dict["Sampling_time_uSec"]
+            self.fh = 750     # hdr_dict["Frequency_Ch_0_Hz"] 
+            self.df = -0.048828  #hdr_dict["Channel_width_Hz"] / 1e6
+            self.dt = 0.00131072  # hdr_dict["Sampling_time_uSec"]
             self.nf = hdr_dict["Channels"]
             self.bw = hdr_dict["Bandwidth_MHz"]
             self.nbits = hdr_dict["Num_bits_per_sample"]
@@ -39,14 +40,13 @@ class Getrawdata:
             self.fl = self.fh
             self.fh = self.fl + self.bw - (0.5 * self.df)
 
-    def getdatabuffer(self, count, offset, beam = 0):
-        full_data = internals.get_data_as_numpy_array(count, offset)
-        beam_data = full_data[beam]  # This will give me the beam 0 
-        
-        return beam_data
+    def getdatabuffer(self, count, offset):
+        data = shared_memory_reader.get_data(count, offset) # 3 is the beam number
+        data = data[2, :]
+        return data
 
     def getdataheader(self):
-        hdr_dict = internals.initialize_HDR_SHM_py()
+        hdr_dict = shared_memory_header.get_header("1234")
         return hdr_dict
 
     def chop(self, candidate: Candidate) -> np.ndarray:
