@@ -298,7 +298,7 @@ def featurize(
                     )
 
                     if save:
-                        candidate.extras = {**fil.header}
+                        candidate.extras = {**fil.getdataheader()}
                         fname = "".join([str(candidate), ".h5"])
                         candidate.save(fname)
     cuda.close()
