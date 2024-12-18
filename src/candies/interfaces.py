@@ -21,13 +21,14 @@ class Getrawdata:
         hdr_dict = self.getdataheader()
 
         try:
-            self.fh = 750     # hdr_dict["Frequency_Ch_0_Hz"] 
-            self.df = -0.048828  # hdr_dict["Channel_width_Hz"] / 1e6
-            self.dt = 0.00131072  # hdr_dict["Sampling_time_uSec"]
-            self.nf = hdr_dict["Channels"]
-            self.bw = hdr_dict["Bandwidth_MHz"]
+            self.nf = hdr_dict["Channels"]  # Assign Channels first
+            self.bw = hdr_dict["Bandwidth_MHz"]  # Assign Bandwidth next
+            self.df = self.bw / self.nf  # Now use the values to calculate df
+            self.fh = hdr_dict["Frequency_Ch_0_Hz"]
+            self.dt = hdr_dict["Sampling_time_uSec"]/1e6
             self.nbits = hdr_dict["Num_bits_per_sample"]
             self.nt = 4 * 100 * 1e6 / self.nf  # Adjust memory block size if needed
+
         except KeyError:
             raise CandiesError("Dictionary reading was incorrect")
 
@@ -46,19 +47,20 @@ class Getrawdata:
         # Perform any necessary cleanup here
         pass
 
-    def getdatabuffer(self, count, offset):
-        data = shared_memory_reader.get_data(count, offset)  # 3 is the beam number
-        data = data[2, :]
+    def getdatabuffer(self, count, offset, beam):
+        data = shared_memory_reader.get_data(count, offset, beam)  # 3 is the beam number
+        data = data[0, :]
         data = data.reshape(-1, self.nf)
         data = data.T
         
         return data
 
     def getdataheader(self):
-        hdr_dict = shared_memory_header.get_header("1234")
+        hdr_dict = shared_memory_header.get_header("1234")  
         return hdr_dict
 
     def chop(self, candidate: Candidate) -> np.ndarray:
+        beam = candidate.beam
         maxdelay = dm2delay(self.fl, self.fh, candidate.dm)
         binbeg = int((candidate.t0 - maxdelay) / self.dt) - candidate.wbin
         binend = int((candidate.t0 + maxdelay) / self.dt) + candidate.wbin
@@ -72,20 +74,20 @@ class Getrawdata:
         nbegin = noffset - (nread - ncount) // 2
 
         if (nbegin >= 0) and (nbegin + nread) <= self.nt:
-            data = self.getdatabuffer(offset=nbegin, count=nread)
+            data = self.getdatabuffer(offset=nbegin, count=nread, beam)
         elif nbegin < 0:
             if (nbegin + nread) <= self.nt:
-                d = self.getdatabuffer(offset=0, count=nread + nbegin)
+                d = self.getdatabuffer(offset=0, count=nread + nbegin, beam)
                 dmedian = np.median(d, axis=1)
                 data = np.ones((self.nf, nread), dtype=self.dtype) * dmedian[:, None]
                 data[:, -nbegin:] = d
             else:
-                d = self.getdatabuffer(offset=0, count=self.nt)
+                d = self.getdatabuffer(offset=0, count=self.nt, beam)
                 dmedian = np.median(d, axis=1)
                 data = np.ones((self.nf, nread), dtype=self.dtype) * dmedian[:, None]
                 data[:, -nbegin: -nbegin + self.nt] = d
         else:
-            d = self.getdatabuffer(offset=nbegin, count=self.nt - nbegin)
+            d = self.getdatabuffer(offset=nbegin, count=self.nt - nbegin, beam)
             dmedian = np.median(d, axis=1)
             data = np.ones((self.nf, nread), dtype=self.dtype) * dmedian[:, None]
             data[:, :self.nt - nbegin] = d
