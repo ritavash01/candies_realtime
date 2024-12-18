@@ -4,11 +4,12 @@ The feature extraction code for candies.
 
 import logging
 from pathlib import Path
-
+import os
 from numba import cuda
 from rich.progress import track
 from rich.logging import RichHandler
-
+import numpy as np
+import pandas as pd
 from candies.interfaces import Getrawdata
 from candies.utilities import kdm, delay2dm, normalise
 
@@ -19,7 +20,42 @@ from candies.base import (
     CandiesError,
     CandidateList,
 )
+from fetch.utils import get_model
+from fetch.data_sequence import DataGenerator
 
+"""
+Function for FETCH
+
+"""
+# def classify_h5_file(filepath: str, model):
+#     """
+#     Classify a single .h5 file using the model.
+
+#     Parameters
+#     ----------
+#     filepath : str
+#         Path to the .h5 file.
+#     model : keras.Model
+#         Loaded classification model.
+
+#     Returns
+#     -------
+#     probabilities : np.ndarray
+#         Classification probabilities for the positive class.
+#     """
+#     generator = DataGenerator(
+#         noise=False,
+#         batch_size=1,
+#         shuffle=False,
+#         list_IDs=[Path(filepath)],
+#         labels=[0],  # Placeholder
+#     )
+#     probabilities = model.predict_generator(
+#         verbose=0, generator=generator, steps=len(generator),
+#             use_multiprocessing=True
+#     )
+#     return probabilities[0]
+#       #Return the probabilities for the file
 
 @cuda.jit(cache=True, fastmath=True)
 def dedisperse(
@@ -142,7 +178,7 @@ def featurize(
     fudging: int = 512,
     verbose: bool = False,
     progressbar: bool = False,
-):
+)-> Path: 
     """
     Create the features for a list of candy-dates.
 
@@ -191,7 +227,7 @@ def featurize(
     cuda.select_device(gpuid)
     stream = cuda.stream()
     log.debug(f"Selected GPU {gpuid}.")
-
+    generated_files = [] 
     
 
     with stream.auto_synchronize():
@@ -298,7 +334,46 @@ def featurize(
                     )
 
                     if save:
-                        candidate.extras = {**fil.getdataheader()}
+                        candidate.extras =  {**fil.getdataheader()}
                         fname = "".join([str(candidate), ".h5"])
                         candidate.save(fname)
-    cuda.close()
+                        generated_files.append(fname)
+
+    cuda.close()              
+    return generated_files          
+    
+   
+
+def classify(h5file: Path) -> dict:
+    """
+    Classify the single .h5 file and return the result as a dictionary.
+    """
+    model = get_model("a")
+
+    generator = DataGenerator(
+        noise=False,
+        batch_size=1,
+        shuffle=False,
+        list_IDs=[h5file],
+        labels=[0],
+    )
+
+    probabilities = model.predict_generator(
+        verbose=1,
+        workers=4,
+        generator=generator,
+        steps=1,
+        use_multiprocessing=False,
+    )
+
+    probability = probabilities[0, 1]
+    label = int(probability >= 0.5)
+
+    if probability == 1.0:
+        return {
+            "candidate": str(h5file),
+            "probability": probability,
+            "label": label,
+        }
+    else:
+        return {}
