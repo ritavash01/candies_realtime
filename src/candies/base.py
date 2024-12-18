@@ -379,6 +379,8 @@ class Candidate:
         The width of the candy-date (in terms of number of bins/samples).
     snr: float
         The signal-to-noise ratio (SNR) of the candy-date.
+    beam:
+        represents the beam number
     extras: dict, optional
         Any extra metadata about this candy-date. Typically includes metadata
         obtained from the file from which the candy-date's data was obtained.
@@ -396,6 +398,7 @@ class Candidate:
     t0: float
     wbin: int
     snr: float
+    beam: int
     fname: str | None = None
     extras: dict | None = None
     dedispersed: Dedispersed | None = None
@@ -418,7 +421,7 @@ class Candidate:
     @classmethod
     def load(cls, fname: str | Path):
         """
-        Load a candy-date from a HDF5 file.
+        Load a candy-date from a HDF5 file. 
 
         Parameters
         ----------
@@ -431,7 +434,8 @@ class Candidate:
                 t0=f.attrs["t0"],  # type: ignore
                 snr=f.attrs["snr"],  # type: ignore
                 wbin=f.attrs["wbin"],  # type: ignore
-                extras=dict(f["extras"].attrs),
+                beam= f.attrs["beam"]
+                extras=None  #dict(f["extras"].attrs),
             )
         self.dmtransform = DMTransform.load(fname)
         self.dedispersed = Dedispersed.load(fname)
@@ -475,6 +479,7 @@ class Candidate:
                 "DM",
                 "SNR",
                 r"$W_{bin}$",
+                "beam"
                 r"$N_{t}$ (original)",
                 r"$N_{t}$ (downsampled)",
                 r"$N_{\nu}$ (downsampled)",
@@ -493,6 +498,7 @@ class Candidate:
                 [f"{self.dm:.2f} pc cm$^{{-3}}$"],
                 [f"{self.snr:.2f}"],
                 [f"{self.wbin:d} bins"],
+                [f"{self.beam:d}"]
                 [
                     f"{self.dedispersed.nt * (1 if self.wbin < 3 else int(self.wbin / 2)):d}"
                 ],
@@ -584,6 +590,7 @@ class Candidate:
             f.attrs["t0"] = self.t0
             f.attrs["snr"] = self.snr
             f.attrs["wbin"] = self.wbin
+            f.attrs["beam"] = self.beam
             if self.dedispersed is not None:
                 self.dedispersed.save(fname)
             if self.dmtransform is not None:
@@ -642,20 +649,22 @@ class CandidateList(MutableSequence):
         df: pandas.DataFrame
             The DataFrame which contains the list of candy-dates.
         """
+    # Sort the DataFrame by SNR in descending order
+        sorted_df = df.sort_values(by="snr", ascending=False)
+    
         return cls(
             candidates=[
                 Candidate(
-                    **(
-                        {
-                            "fname": str(row.get("file", None)),
-                            "snr": float(row["snr"]),
-                            "t0": float(row["stime"]),
-                            "wbin": int(row["width"]),
-                            "dm": float(row["dm"]),
-                        }
-                    )
+                    **{
+                        "fname": str(row.get("file", None)),
+                        "snr": float(row["snr"]),
+                        "t0": float(row["stime"]),
+                        "wbin": int(row["width"]),
+                        "dm": float(row["dm"]),
+                        "beam": float(row["beam"]),
+                    }
                 )
-                for _, row in df.iterrows()
+                for _, row in sorted_df.iterrows()
             ]
         )
 
@@ -672,6 +681,7 @@ class CandidateList(MutableSequence):
                         "stime": candidate.t0,
                         "width": candidate.wbin,
                         "dm": candidate.dm,
+                        "beam": candidate.beam,
                         "label": 0,
                         "chan_mask_path": pd.NA,
                         "num_files": 1,
