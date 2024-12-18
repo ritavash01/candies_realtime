@@ -3,14 +3,14 @@ The application code for candies.
 """
 
 from pathlib import Path
-
+import logging
 import cyclopts
 from rich.table import Table
 from rich.progress import track
 from rich.console import Console
 from joblib import Parallel, delayed
-
-from candies.features import featurize
+import pandas as pd
+from candies.features import featurize,classify
 # from candies.interfaces import SIGPROCFilterbank
 from candies.base import Candidate, CandidateList
 
@@ -18,11 +18,11 @@ app = cyclopts.App()
 app["--help"].group = "Admin"
 app["--version"].group = "Admin"
 
+log = logging.getLogger()
 
 @app.command
 def make(
     candlist: str,
-    /,
     fil: str | Path | None = None,
     gpuid: int = 0,
     save: bool = True,
@@ -53,25 +53,48 @@ def make(
     show_progress: bool, optional
         Show the progress bar. True by default.
     """
+
+    # Initialize an empty list to store classification results
+    classification_results = []
+
+    # Group candidates by their filterbank file
     candidates = CandidateList.from_csv(candlist)
     groups = candidates.to_df().groupby("file")
-    for fname, group in groups:
-        featurize(
-            CandidateList.from_df(group),
-            str(fname) if fil is None else fil,
-            save=save,
-            zoom=zoom,
-            gpuid=gpuid,
-            fudging=fudging,
-            verbose=verbose,
-            progressbar=show_progress,
-        )
 
+    for fname, group in groups:
+        candidate_list = CandidateList.from_df(group)
+
+        log.info(f"Processing candidates from filterbank: {fname}")
+        try:
+            generated_files = featurize(
+                candidate_list,
+                str(fname) if fil is None else fil,
+                save=save,
+                zoom=zoom,
+                gpuid=gpuid,
+                fudging=fudging,
+                verbose=verbose,
+                progressbar=show_progress,
+            )
+        except Exception as e:
+            log.error(f"Error during featurization: {e}")
+            continue
+
+        # Classify each generated file
+        for h5file in generated_files:
+            try:
+                log.info(f"Classifying candidate from file: {h5file}")
+                classification = classify(Path(h5file))
+                classification_results.append(classification)
+                log.info(f"Classification result: {classification}")
+            except Exception as e:
+                log.error(f"Error during classification of {h5file}: {e}")
+    classification_df = pd.DataFrame(classification_results)
+    classification_df.to_csv("classification_results.csv", index=False)
 
 @app.command
 def store(
     candlist: str,
-    /,
     njobs: int = 1,
     show_progress: bool = True,
     fil: str | Path | None = None,
@@ -106,7 +129,6 @@ def store(
 @app.command
 def list_(
     candfiles: list[str | Path],
-    /,
     show: bool = False,
     save: bool = True,
     saveto: str = "candidates.csv",
@@ -152,7 +174,6 @@ def list_(
 @app.command
 def plot(
     candfiles: list[str | Path],
-    /,
     dpi: int = 96,
     save: bool = True,
     show: bool = False,
